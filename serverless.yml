@@ -1,0 +1,59 @@
+org: jerico200
+app: python-rest-api
+service: python-rest-api
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: python3.9
+  iamRoleStatements:
+    - Effect: "Allow"
+      Action:
+        - "dynamodb:PutItem"
+        - "dynamodb:Get*"
+        - "dynamodb:Scan*"
+        - "dynamodb:UpdateItem"
+        - "dynamodb:DeleteItem"
+      Resource: "arn:aws:dynamodb:${aws:region}:${aws:accountId}:table/${self:provider.environment.DYNAMODB_TABLE}"
+  environment:
+    DYNAMODB_TABLE: ${self:service}-loyaltyCardTableV1-${sls:stage}
+
+functions:
+  createLoyaltyCards:
+    handler: controller.createLoyaltyCards
+    events:
+      - httpApi:
+          path: /loyalty-cards
+          method: post
+  
+  getLoyaltyCard:
+    handler: controller.getLoyaltyCard
+    events:
+      - httpApi:
+          path: /loyalty-cards/{id}
+          method: get
+
+  getLoyaltyCards:
+    handler: controller.getLoyaltyCards
+    events:
+      - httpApi:
+          path: /loyalty-cards
+          method: get
+
+plugins:
+  - serverless-offline-python
+  - serverless-dynamodb-local
+  
+resources:
+  Resources:
+    CustomerTable:
+      Type: AWS::DynamoDB::Table
+      Properties: 
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+        BillingMode: PAY_PER_REQUEST
+        KeySchema: 
+          - AttributeName: id
+            KeyType: HASH
+        TableName: ${self:provider.environment.DYNAMODB_TABLE}
