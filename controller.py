@@ -4,6 +4,13 @@ from utils import DecimalEncoder
 import json
 import logging
 import uuid
+import urllib.parse
+import os
+import boto3
+
+QUEUE_URL = os.getenv('QUEUE_URL')
+s3 = boto3.client('s3')
+sqs = boto3.client('sqs')
 
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
@@ -97,3 +104,36 @@ def getLoyaltyCards(event, context):
     return response
 
 
+def sendToSQS(event, context):
+    
+    bucket = event['Records'][0]['s3']['bucket']['name']
+    key = urllib.parse.unquote_plus(event['Records'][0]['s3']['object']['key'], encoding='utf-8')
+    convertedToObject = []
+    try:
+        response = s3.get_object(Bucket=bucket, Key=key)
+        print("CONTENT TYPE: " + response['ContentType'])
+        data = response['Body']
+        inStringData = data.read().decode('utf-8')
+        split = inStringData.splitlines()
+ 
+        for unicode_line in split:
+            convertedToObject.append(json.dumps(unicode_line))
+
+    except Exception as e:
+        print(e)
+        print('Error getting object {} from bucket {}. Make sure they exist and your bucket is in the same region as this function.'.format(key, bucket))
+        raise e
+
+    try:
+        for job in convertedToObject:
+            sqs.send_message(
+                QueueUrl=QUEUE_URL,
+                MessageBody=job
+            )
+    except Exception as e:
+        print(e)
+        print('Sending message to SQS queue failed!')
+
+def queueReceiver(event, context):
+    for record in event["Records"]:
+        print('record body', record['body'])

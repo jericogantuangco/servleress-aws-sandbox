@@ -1,11 +1,21 @@
 org: jerico200
 app: python-rest-api
 service: python-rest-api
-frameworkVersion: '3'
+frameworkVersion: '2'
+
+custom:
+  bucket: csv-bucket-20230209
+
+constructs:
+  jobs:
+    type: queue
+    worker:
+      handler: controller.queueReceiver
 
 provider:
   name: aws
   runtime: python3.9
+  lambdaHashingVersion: 20201221
   iamRoleStatements:
     - Effect: "Allow"
       Action:
@@ -15,6 +25,13 @@ provider:
         - "dynamodb:UpdateItem"
         - "dynamodb:DeleteItem"
       Resource: "arn:aws:dynamodb:${aws:region}:${aws:accountId}:table/${self:provider.environment.DYNAMODB_TABLE}"
+    - Effect: "Allow"
+      Action:
+        - "s3:*"
+      Resource: 
+        - "arn:aws:s3:::${self:custom.bucket}"
+        - "arn:aws:s3:::${self:custom.bucket}/*"
+    
   environment:
     DYNAMODB_TABLE: ${self:service}-loyaltyCardTableV1-${sls:stage}
 
@@ -40,10 +57,15 @@ functions:
           path: /loyalty-cards
           method: get
 
-plugins:
-  - serverless-offline-python
-  - serverless-dynamodb-local
-  
+  sendToSQS:
+    handler: controller.sendToSQS
+    events:
+      - s3:
+          bucket: ${self:custom.bucket}
+          event: s3:ObjectCreated:*
+          rules:
+            - suffix: .csv
+    
 resources:
   Resources:
     CustomerTable:
@@ -57,3 +79,4 @@ resources:
           - AttributeName: id
             KeyType: HASH
         TableName: ${self:provider.environment.DYNAMODB_TABLE}
+
