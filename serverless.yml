@@ -1,7 +1,7 @@
 org: jerico200
 app: python-rest-api
 service: python-rest-api
-frameworkVersion: '2'
+frameworkVersion: '3'
 
 custom:
   bucket: csv-bucket-20230209
@@ -92,3 +92,6 @@ resources:
       Type: AWS::SQS::Queue
       Properties:
         QueueName: ${self:provider.environment.QUEUE_NAME}
+
+plugins:
+  - serverless-offline
