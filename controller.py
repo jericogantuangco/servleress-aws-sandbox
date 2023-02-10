@@ -8,7 +8,8 @@ import urllib.parse
 import os
 import boto3
 
-QUEUE_URL = os.getenv('QUEUE_URL')
+QUEUE_NAME = os.getenv('QUEUE_NAME')
+
 s3 = boto3.client('s3')
 sqs = boto3.client('sqs')
 
@@ -52,7 +53,7 @@ def createLoyaltyCards(event, _):
     return response
 
 
-def getLoyaltyCard(event, _):
+def getLoyaltyCard(event, context):
     db = DynamoDB()
     loyaltyCard = LoyaltyCard(db)
     body = {
@@ -78,6 +79,7 @@ def getLoyaltyCard(event, _):
     response['statusCode'] = 200
     response['body'] = json.dumps(result, cls=DecimalEncoder)
 
+    print('ARN', context)
     return response
 
     
@@ -111,7 +113,6 @@ def sendToSQS(event, context):
     convertedToObject = []
     try:
         response = s3.get_object(Bucket=bucket, Key=key)
-        print("CONTENT TYPE: " + response['ContentType'])
         data = response['Body']
         inStringData = data.read().decode('utf-8')
         split = inStringData.splitlines()
@@ -120,20 +121,42 @@ def sendToSQS(event, context):
             convertedToObject.append(json.dumps(unicode_line))
 
     except Exception as e:
-        print(e)
-        print('Error getting object {} from bucket {}. Make sure they exist and your bucket is in the same region as this function.'.format(key, bucket))
+        message = f'Error getting object {key} from bucket {bucket}. Make sure they exist and your bucket is in the same region as this function.'
+        logger.error(message)
         raise e
 
+
+    region = context.invoked_function_arn.split(":")[3]
+    user = context.invoked_function_arn.split(":")[4]
+    queueName = QUEUE_NAME
+
+    queueURL = f'https://sqs.{region}.amazonaws.com/{user}/{queueName}'
     try:
         for job in convertedToObject:
             sqs.send_message(
-                QueueUrl=QUEUE_URL,
+                QueueUrl=queueURL,
                 MessageBody=job
             )
     except Exception as e:
-        print(e)
-        print('Sending message to SQS queue failed!')
+        logger.error('Sending message to SQS queue failed!')
+        raise e
+
 
 def queueReceiver(event, context):
-    for record in event["Records"]:
-        print('record body', record['body'])
+    db = DynamoDB()
+    loyaltyCard = LoyaltyCard(db)
+    try:
+        for record in event["Records"]:
+            data = json.loads(record['body'])
+            data = eval(data)
+            card = {
+                'id': str(uuid.uuid4()),
+                'card_number': data['card_number'],
+                'first_name': data['first_name'],
+                'last_name': data['last_name'],
+                'points': data['points']
+            }
+            loyaltyCard.create(card)
+    except Exception as e:
+        logger.error('Saving to Database failed')
+        raise e
